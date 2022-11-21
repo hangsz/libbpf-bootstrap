@@ -23,7 +23,7 @@ static inline int ip_is_fragment(struct __sk_buff *skb, __u32 nhoff)
 {
 	__u16 frag_off;
 
-	bpf_skb_load_bytes(skb, nhoff + offsetof(struct iphdr, frag_off), &frag_off, 2);
+	bpf_skb_load_bytes(skb, nhoff + offsetof(struct iphdr, frag_off), &frag_off, 2); //14+5, offsetof 成员的字节偏移量，对应skb vlan_present前两个字节
 	frag_off = __bpf_ntohs(frag_off);
 	return frag_off & (IP_MF | IP_OFFSET);
 }
@@ -34,11 +34,11 @@ int socket_handler(struct __sk_buff *skb)
 	struct so_event *e;
 	__u8 verlen;
 	__u16 proto;
-	__u32 nhoff = ETH_HLEN;
+	__u32 nhoff = ETH_HLEN;   //以太帧头14字节长度，目的6，源6，类型2
 
-	bpf_skb_load_bytes(skb, 12, &proto, 2);
-	proto = __bpf_ntohs(proto);
-	if (proto != ETH_P_IP)
+	bpf_skb_load_bytes(skb, 12, &proto, 2);  //__sk_buff user space skb，第12个字节开始为proto
+	proto = __bpf_ntohs(proto);  
+	if (proto != ETH_P_IP) //sk buff的protocal为三层协议
 		return 0;
 
 	if (ip_is_fragment(skb, nhoff))
@@ -49,7 +49,7 @@ int socket_handler(struct __sk_buff *skb)
 	if (!e)
 		return 0;
 
-	bpf_skb_load_bytes(skb, nhoff + offsetof(struct iphdr, protocol), &e->ip_proto, 1);
+	bpf_skb_load_bytes(skb, nhoff + offsetof(struct iphdr, protocol), &e->ip_proto, 1); //14+8,对应vlan_present 第三个字节
 
 	if (e->ip_proto != IPPROTO_GRE) {
 		bpf_skb_load_bytes(skb, nhoff + offsetof(struct iphdr, saddr), &(e->src_addr), 4);
