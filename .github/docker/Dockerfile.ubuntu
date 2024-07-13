@@ -5,9 +5,10 @@ ARG LLVM_VERSION="14"
 ENV LLVM_VERSION=$LLVM_VERSION
 
 ARG SHORTNAME="jammy"
+ENV SHORTNAME=$SHORTNAME
 
 RUN apt-get update && apt-get install -y curl gnupg
-RUN if [ "${LLVM_VERSION}" = "16" ]; \
+RUN if [ "${LLVM_VERSION}" = "19" ]; \
     then \
         echo "\n\
 deb http://apt.llvm.org/${SHORTNAME}/ llvm-toolchain-${SHORTNAME} main\n\
@@ -36,7 +37,7 @@ RUN apt-get update && apt-get install -y \
       llvm-${LLVM_VERSION}-dev \
       llvm-${LLVM_VERSION}-runtime \
       libllvm${LLVM_VERSION} \
-      make pkg-config \
+      make cmake pkg-config \
       rustc cargo rustfmt \
       sudo \
       && apt-get -y clean

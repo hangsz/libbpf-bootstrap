@@ -1,6 +1,9 @@
-# Demo BPF applications
+# libbpf-bootstrap: demo BPF applications
 
-## Minimal
+[![Github Actions](https://github.com/libbpf/libbpf-bootstrap/actions/workflows/build.yml/badge.svg)](https://github.com/libbpf/libbpf-bootstrap/actions/workflows/build.yml)
+[![Github Actions](https://github.com/libbpf/libbpf-bootstrap/actions/workflows/build-android.yml/badge.svg)](https://github.com/libbpf/libbpf-bootstrap/actions/workflows/build-android.yml)
+
+## minimal
 
 `minimal` is just that – a minimal practical BPF application example. It
 doesn't use or require BPF CO-RE, so should run on quite old kernels. It
@@ -20,7 +23,24 @@ $ sudo cat /sys/kernel/debug/tracing/trace_pipe
 `minimal` is great as a bare-bones experimental playground to quickly try out
 new ideas or BPF features.
 
-## Minimal_Legacy
+## minimal_ns
+
+`minimal_ns` is as same as `minimal` but for namespaced environments.
+`minimal` would not work in environments that have namespace, like containers,
+or WSL2, because the perceived pid of the process in the namespace is not the
+actual pid of the process. For executing `minimal` in namespaced environments
+you need to use `minimal_ns` instead.
+
+```shell
+$ cd examples/c
+$ make minimal_ns
+$ sudo ./minimal_ns
+$ sudo cat /sys/kernel/debug/tracing/trace_pipe
+           <...>-3840345 [022] d...1  8804.331204: bpf_trace_printk: BPF triggered from PID 9087.
+           <...>-3840345 [022] d...1  8804.331215: bpf_trace_printk: BPF triggered from PID 9087.
+```
+
+## minimal_Legacy
 
 This version of `minimal` is modified to allow running on even older kernels
 that do not allow global variables. bpf_printk uses global variables unless
@@ -39,7 +59,7 @@ $ sudo cat /sys/kernel/debug/tracing/trace_pipe
   minimal_legacy-52030 [001] .... 491230.842432: 0x00000001: BPF triggered from PID 52030.
 ```
 
-## Bootstrap
+## bootstrap
 
 `bootstrap` is an example of a simple (but realistic) BPF application. It
 tracks process starts (`exec()` family of syscalls, to be precise) and exits
@@ -88,7 +108,7 @@ TIME     EVENT COMM             PID     PPID    FILENAME/EXIT CODE
 ...
 ```
 
-## Uprobe
+## uprobe
 
 `uprobe` is an example of dealing with user-space entry and exit (return) probes,
 `uprobe` and `uretprobe` in libbpf lingo. It attached `uprobe` and `uretprobe`
@@ -117,7 +137,7 @@ $ sudo cat /sys/kernel/debug/tracing/trace_pipe
           uprobe-1809291 [007] .... 4017234.106701: 0: uprobed_sub EXIT: return = 0
 ```
 
-## USDT
+## usdt
 
 `usdt` is an example of dealing with USDT probe. It attaches USDT BPF programs to
 the [libc:setjmp](https://www.gnu.org/software/libc/manual/html_node/Non_002dlocal-Goto-Probes.html) probe, which is triggered by calling `setjmp` in user-space program once per second and logs USDT arguments using `bpf_printk()` macro:
@@ -139,7 +159,7 @@ $ sudo cat /sys/kernel/debug/tracing/trace_pipe
             usdt-1919077 [005] d..21 537311.886227: bpf_trace_printk: USDT manual attach to libc:setjmp: arg1 = 55d03d6a42a0, arg2 = 0, arg3 = 55d03d65e54e
 ```
 
-## Fentry
+## fentry
 
 `fentry` is an example that uses fentry and fexit BPF programs for tracing. It
 attaches `fentry` and `fexit` traces to `do_unlinkat()` which is called when a
@@ -174,7 +194,7 @@ $ sudo cat /sys/kernel/debug/tracing/trace_pipe
               rm-9290    [004] d..2  4637.798843: bpf_trace_printk: fexit: pid = 9290, filename = test_file2, ret = 0
 ```
 
-## Kprobe
+## kprobe
 
 `kprobe` is an example of dealing with kernel-space entry and exit (return)
 probes, `kprobe` and `kretprobe` in libbpf lingo. It attaches `kprobe` and
@@ -200,7 +220,7 @@ $ sudo cat /sys/kernel/debug/tracing/trace_pipe
               rm-9346    [005] d..4  4710.951895: bpf_trace_printk: KPROBE EXIT: ret = 0
 ```
 
-## XDP
+## xdp
 
 `xdp` is an example written in Rust (using libbpf-rs). It attaches to
 the ingress path of networking device and logs the size of each packet,
@@ -223,7 +243,7 @@ $ sudo cat /sys/kernel/debug/tracing/trace_pipe
            <...>-2813507 [000] d.s1 602386.696735: bpf_trace_printk: packet size: 66
 ```
 
-## TC
+## tc
 
 `tc` (short for Traffic Control) is an example of handling ingress network traffics.
 It creates a qdisc on the `lo` interface and attaches the `tc_ingress` BPF program to it.
@@ -247,29 +267,33 @@ $ sudo cat /sys/kernel/debug/tracing/trace_pipe
             node-1254811 [007] ..s1 8737831.674550: 0: Got IP packet: tot_len: 71, ttl: 64
 ```
 
-## Profile
+## profile
 
-`profile` is an example written in Rust and C with BlazeSym. It
+`profile` is an example written in Rust and C using the
+[`blazesym`](https://github.com/libbpf/blazesym) symbolization library. It
 attaches to perf events, sampling on every processor periodically. It
-shows addresses, symbols, file names, and line numbers of stacktraces.
+shows addresses, symbols, file names, and line numbers of stacktraces (if
+available).
 
 ```shell
 $ sudo ./target/release/profile
-COMM: swapper/6 (pid=0) @ CPU 6
+COMM: swapper/2 (pid=0) @ CPU 2
 Kernel:
-  0 [<ffffffff81bdf010>] intel_idle+0x96
-  1 [<ffffffff819959b0>] cpuidle_enter_state+0x80 /ro/source/drivers/cpuidle/cpuidle.c:238
-  2 [<ffffffff81995cc9>] cpuidle_enter+0x29 /ro/source/drivers/cpuidle/cpuidle.c:353
-  3 [<ffffffff810f8c0b>] do_idle+0x1bb /ro/source/kernel/sched/idle.c:243
-  4 [<ffffffff810f8de9>] cpu_startup_entry+0x19 /ro/source/kernel/sched/idle.c:396
-  5 [<ffffffff81044f46>] start_secondary+0x116 /ro/source/arch/x86/kernel/smpboot.c:272
-  6 [<ffffffff810000f5>] secondary_startup_64_no_verify+0xb0 /ro/source/arch/x86/kernel/head_64.S:283
+0xffffffffb59141f8: mwait_idle_with_hints.constprop.0 @ 0xffffffffb59141b0+0x48
+0xffffffffb5f731ce: intel_idle @ 0xffffffffb5f731b0+0x1e
+0xffffffffb5c7bf09: cpuidle_enter_state @ 0xffffffffb5c7be80+0x89
+0xffffffffb5c7c309: cpuidle_enter @ 0xffffffffb5c7c2e0+0x29
+0xffffffffb516f57c: do_idle @ 0xffffffffb516f370+0x20c
+0xffffffffb516f829: cpu_startup_entry @ 0xffffffffb516f810+0x19
+0xffffffffb5075bfa: start_secondary @ 0xffffffffb5075ae0+0x11a
+0xffffffffb500015a: secondary_startup_64_no_verify @ 0xffffffffb5000075+0xe5
 No Userspace Stack
 ```
 
-C version and Rust version show the same content.  Both of them use BlazeSym to symbolize stacktraces.
+C version and Rust version show the same content. Both of them use `blazesym`
+to symbolize stacktraces.
 
-## Socket filter
+## sockfilter
 
 `sockfilter` is an example of monitoring packet and dealing with `__sk_buff`
 structure. It attaches `socket` BPF program to `sock_queue_rcv_skb()` function
@@ -279,9 +303,51 @@ Currently, most of the IPv4 protocols defined in `uapi/linux/in.h` are included,
 please check `ipproto_mapping` of `examples/c/sockfilter.c` for the supported protocols.
 
 ```shell
-$ sudo ./sockfilter
+$ sudo ./sockfilter -i <interface>
 interface:lo    protocol: UDP   127.0.0.1:51845(src) -> 127.0.0.1:53(dst)
 interface:lo    protocol: UDP   127.0.0.1:41552(src) -> 127.0.0.1:53(dst)
+```
+
+## task_iter
+
+`task_iter` is an example of using [BPF Iterators](https://docs.kernel.org/bpf/bpf_iterators.html). 
+This example iterates over all tasks on the host and gets their pid, process name, 
+kernel stack, and their state. Note: you can use BlazeSym to symbolize the kernel stacktraces 
+(like in `profile`) but that code is omitted for simplicity.
+
+```shell
+$ sudo ./task_iter
+Task Info. Pid: 3647645. Process Name: TTLSFWorker59. Kernel Stack Len: 3. State: INTERRUPTIBLE
+Task Info. Pid: 1600495. Process Name: tmux: client. Kernel Stack Len: 6. State: INTERRUPTIBLE
+Task Info. Pid: 1600497. Process Name: tmux: server. Kernel Stack Len: 0. State: RUNNING
+Task Info. Pid: 1600498. Process Name: bash. Kernel Stack Len: 5. State: INTERRUPTIBLE
+```
+
+## lsm
+`lsm` serves as an illustrative example of utilizing [LSM BPF](https://docs.kernel.org/bpf/prog_lsm.html). In this example, the `bpf()` system call is effectively blocked. Once the `lsm` program is operational, its successful execution can be confirmed by using the `bpftool prog list` command.
+
+```shell
+$ sudo ./lsm
+libbpf: loading object 'lsm_bpf' from buffer
+...
+Successfully started! Please run `sudo cat /sys/kernel/debug/tracing/trace_pipe` to see output of the BPF programs.
+..........
+```
+
+The output from `lsm` in `/sys/kernel/debug/tracing/trace_pipe` is expected to resemble the following:
+
+````shell
+$ sudo cat /sys/kernel/debug/tracing/trace_pipe
+         bpftool-70646   [002] ...11 279318.416393: bpf_trace_printk: LSM: block bpf() worked
+         bpftool-70646   [002] ...11 279318.416532: bpf_trace_printk: LSM: block bpf() worked
+         bpftool-70646   [002] ...11 279318.416533: bpf_trace_printk: LSM: block bpf() worked
+````
+
+When the `bpf()` system call gets blocked, the `bpftool prog list` command yields the following output:
+
+```shell
+$ sudo bpftool prog list
+Error: can't get next program: Operation not permitted
 ```
 
 # Building
@@ -291,7 +357,8 @@ This serves as a cross reference for folks coming from different backgrounds.
 
 ## Install Dependencies
 
-You will need `clang`, `libelf` and `zlib` to build the examples, package names may vary across distros.
+You will need `clang` (at least v11 or later), `libelf` and `zlib` to build
+the examples, package names may vary across distros.
 
 On Ubuntu/Debian, you need:
 ```shell
@@ -301,6 +368,12 @@ $ apt install clang libelf1 libelf-dev zlib1g-dev
 On CentOS/Fedora, you need:
 ```shell
 $ dnf install clang elfutils-libelf elfutils-libelf-devel zlib-devel
+```
+## Getting the source code
+
+Download the git repository and check out submodules:
+```shell
+$ git clone --recurse-submodules https://github.com/libbpf/libbpf-bootstrap
 ```
 
 ## C Examples

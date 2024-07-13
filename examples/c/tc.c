@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include "tc.skel.h"
 
-#define LO_IFINDEX	1
+#define LO_IFINDEX 1
 
 static volatile sig_atomic_t exiting = 0;
 
@@ -20,15 +20,13 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format, va
 
 int main(int argc, char **argv)
 {
-	DECLARE_LIBBPF_OPTS(bpf_tc_hook, tc_hook,
-		.ifindex = LO_IFINDEX, .attach_point = BPF_TC_INGRESS);
-	DECLARE_LIBBPF_OPTS(bpf_tc_opts, tc_opts,
-		.handle = 1, .priority = 1);
+	DECLARE_LIBBPF_OPTS(bpf_tc_hook, tc_hook, .ifindex = LO_IFINDEX,
+			    .attach_point = BPF_TC_INGRESS);
+	DECLARE_LIBBPF_OPTS(bpf_tc_opts, tc_opts, .handle = 1, .priority = 1);
 	bool hook_created = false;
 	struct tc_bpf *skel;
 	int err;
 
-	libbpf_set_strict_mode(LIBBPF_STRICT_ALL);
 	libbpf_set_print(libbpf_print_fn);
 
 	skel = tc_bpf__open_and_load();

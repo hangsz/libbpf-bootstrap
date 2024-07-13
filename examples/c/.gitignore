@@ -2,6 +2,7 @@
 /bootstrap
 /minimal
 /minimal_legacy
+/minimal_ns
 /uprobe
 /kprobe
 /fentry
@@ -9,3 +10,8 @@
 /usdt
 /sockfilter
 /tc
+/ksyscall
+/task_iter
+/lsm
+/cmake-build-debug/
+/cmake-build-release/

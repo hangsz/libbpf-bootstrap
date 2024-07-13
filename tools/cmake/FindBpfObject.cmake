@@ -133,7 +133,7 @@ execute_process(
   RESULT_VARIABLE CLANG_SYSTEM_INCLUDES_result
   OUTPUT_STRIP_TRAILING_WHITESPACE)
 if(${CLANG_SYSTEM_INCLUDES_result} EQUAL 0)
-  string(REPLACE "\n" " " CLANG_SYSTEM_INCLUDES ${CLANG_SYSTEM_INCLUDES_output})
+  separate_arguments(CLANG_SYSTEM_INCLUDES UNIX_COMMAND ${CLANG_SYSTEM_INCLUDES_output})
   message(STATUS "BPF system include flags: ${CLANG_SYSTEM_INCLUDES}")
 else()
   message(FATAL_ERROR "Failed to determine BPF system includes: ${CLANG_SYSTEM_INCLUDES_error}")
@@ -141,7 +141,7 @@ endif()
 
 # Get target arch
 execute_process(COMMAND uname -m
-  COMMAND sed -e "s/x86_64/x86/" -e "s/aarch64/arm64/" -e "s/ppc64le/powerpc/" -e "s/mips.*/mips/"
+  COMMAND sed -e "s/x86_64/x86/" -e "s/aarch64/arm64/" -e "s/ppc64le/powerpc/" -e "s/mips.*/mips/" -e "s/riscv64/riscv/"
   OUTPUT_VARIABLE ARCH_output
   ERROR_VARIABLE ARCH_error
   RESULT_VARIABLE ARCH_result
@@ -165,6 +165,7 @@ macro(bpf_object name input)
     COMMAND ${BPFOBJECT_CLANG_EXE} -g -O2 -target bpf -D__TARGET_ARCH_${ARCH}
             ${CLANG_SYSTEM_INCLUDES} -I${GENERATED_VMLINUX_DIR}
             -isystem ${LIBBPF_INCLUDE_DIRS} -c ${BPF_C_FILE} -o ${BPF_O_FILE}
+    COMMAND_EXPAND_LISTS
     VERBATIM
     DEPENDS ${BPF_C_FILE}
     COMMENT "[clang] Building BPF object: ${name}")

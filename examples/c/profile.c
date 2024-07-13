@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: (LGPL-2.1 OR BSD-2-Clause)
 /* Copyright (c) 2022 Facebook */
+#include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/syscall.h>
 #include <sys/sysinfo.h>
 #include <linux/perf_event.h>
@@ -13,8 +16,15 @@
 #include "profile.h"
 #include "blazesym.h"
 
-static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
-			    int cpu, int group_fd, unsigned long flags)
+/*
+ * This function is from libbpf, but it is not a public API and can only be
+ * used for demonstration. We can use this here because we statically link
+ * against the libbpf built from submodule during build.
+ */
+extern int parse_cpu_mask_file(const char *fcpu, bool **mask, int *mask_sz);
+
+static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid, int cpu, int group_fd,
+			    unsigned long flags)
 {
 	int ret;
 
@@ -22,62 +32,71 @@ static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
 	return ret;
 }
 
-static struct blazesym *symbolizer;
+static struct blaze_symbolizer *symbolizer;
+
+static void print_frame(const char *name, uintptr_t input_addr, uintptr_t addr, uint64_t offset, const blaze_symbolize_code_info* code_info)
+{
+    // If we have an input address  we have a new symbol.
+    if (input_addr != 0) {
+      printf("%016lx: %s @ 0x%lx+0x%lx", input_addr, name, addr, offset);
+			if (code_info != NULL && code_info->dir != NULL && code_info->file != NULL) {
+				printf(" %s/%s:%u\n", code_info->dir, code_info->file, code_info->line);
+      } else if (code_info != NULL && code_info->file != NULL) {
+				printf(" %s:%u\n", code_info->file, code_info->line);
+      } else {
+				printf("\n");
+      }
+    } else {
+      printf("%16s  %s", "", name);
+			if (code_info != NULL && code_info->dir != NULL && code_info->file != NULL) {
+				printf("@ %s/%s:%u [inlined]\n", code_info->dir, code_info->file, code_info->line);
+      } else if (code_info != NULL && code_info->file != NULL) {
+				printf("@ %s:%u [inlined]\n", code_info->file, code_info->line);
+      } else {
+				printf("[inlined]\n");
+      }
+    }
+}
 
 static void show_stack_trace(__u64 *stack, int stack_sz, pid_t pid)
 {
-	const struct blazesym_result *result;
-	const struct blazesym_csym *sym;
-	sym_src_cfg src;
+  const struct blaze_symbolize_inlined_fn* inlined;
+	const struct blaze_result *result;
+	const struct blaze_sym *sym;
 	int i, j;
 
+	assert(sizeof(uintptr_t) == sizeof(uint64_t));
+
 	if (pid) {
-		src.src_type = SRC_T_PROCESS;
-		src.params.process.pid = pid;
+		struct blaze_symbolize_src_process src = {
+			.type_size = sizeof(src),
+			.pid = pid,
+		};
+		result = blaze_symbolize_process_abs_addrs(symbolizer, &src, (const uintptr_t *)stack, stack_sz);
 	} else {
-		src.src_type = SRC_T_KERNEL;
-		src.params.kernel.kallsyms = NULL;
-		src.params.kernel.kernel_image = NULL;
+		struct blaze_symbolize_src_kernel src = {
+			.type_size = sizeof(src),
+		};
+		result = blaze_symbolize_kernel_abs_addrs(symbolizer, &src, (const uintptr_t *)stack, stack_sz);
 	}
 
-	result = blazesym_symbolize(symbolizer, &src, 1, (const uint64_t *)stack, stack_sz);
 
 	for (i = 0; i < stack_sz; i++) {
-		if (!result || result->size <= i || !result->entries[i].size) {
-			printf("  %d [<%016llx>]\n", i, stack[i]);
+		if (!result || result->cnt <= i || result->syms[i].name == NULL) {
+			printf("%016llx: <no-symbol>\n", stack[i]);
 			continue;
 		}
 
-		if (result->entries[i].size == 1) {
-			sym = &result->entries[i].syms[0];
-			if (sym->path && sym->path[0]) {
-				printf("  %d [<%016llx>] %s+0x%llx %s:%ld\n",
-				       i, stack[i], sym->symbol,
-				       stack[i] - sym->start_address,
-				       sym->path, sym->line_no);
-			} else {
-				printf("  %d [<%016llx>] %s+0x%llx\n",
-				       i, stack[i], sym->symbol,
-				       stack[i] - sym->start_address);
-			}
-			continue;
-		}
+    sym = &result->syms[i];
+    print_frame(sym->name, stack[i], sym->addr, sym->offset, &sym->code_info);
 
-		printf("  %d [<%016llx>]\n", i, stack[i]);
-		for (j = 0; j < result->entries[i].size; j++) {
-			sym = &result->entries[i].syms[j];
-			if (sym->path && sym->path[0]) {
-				printf("        %s+0x%llx %s:%ld\n",
-				       sym->symbol, stack[i] - sym->start_address,
-				       sym->path, sym->line_no);
-			} else {
-				printf("        %s+0x%llx\n", sym->symbol,
-				       stack[i] - sym->start_address);
-			}
-		}
+    for (j = 0; j < sym->inlined_cnt; j++) {
+      inlined = &sym->inlined[j];
+      print_frame(sym->name, 0, 0, 0, &inlined->code_info);
+    }
 	}
 
-	blazesym_result_free(result);
+	blaze_result_free(result);
 }
 
 /* Receive events from the ring buffer. */
@@ -113,16 +132,18 @@ static void show_help(const char *progname)
 	printf("Usage: %s [-f <frequency>] [-h]\n", progname);
 }
 
-int main(int argc, char * const argv[])
+int main(int argc, char *const argv[])
 {
+	const char *online_cpus_file = "/sys/devices/system/cpu/online";
 	int freq = 1, pid = -1, cpu;
 	struct profile_bpf *skel = NULL;
 	struct perf_event_attr attr;
 	struct bpf_link **links = NULL;
 	struct ring_buffer *ring_buf = NULL;
-	int num_cpus;
+	int num_cpus, num_online_cpus;
 	int *pefds = NULL, pefd;
 	int argp, i, err = 0;
+	bool *online_mask = NULL;
 
 	while ((argp = getopt(argc, argv, "hf:")) != -1) {
 		switch (argp) {
@@ -139,19 +160,27 @@ int main(int argc, char * const argv[])
 		}
 	}
 
+	err = parse_cpu_mask_file(online_cpus_file, &online_mask, &num_online_cpus);
+	if (err) {
+		fprintf(stderr, "Fail to get online CPU numbers: %d\n", err);
+		goto cleanup;
+	}
+
 	num_cpus = libbpf_num_possible_cpus();
 	if (num_cpus <= 0) {
 		fprintf(stderr, "Fail to get the number of processors\n");
-		return 1;
+		err = -1;
+		goto cleanup;
 	}
 
 	skel = profile_bpf__open_and_load();
 	if (!skel) {
 		fprintf(stderr, "Fail to open and load BPF skeleton\n");
-		return 1;
+		err = -1;
+		goto cleanup;
 	}
 
-	symbolizer = blazesym_new();
+	symbolizer = blaze_symbolizer_new();
 	if (!symbolizer) {
 		fprintf(stderr, "Fail to create a symbolizer\n");
 		err = -1;
@@ -166,8 +195,9 @@ int main(int argc, char * const argv[])
 	}
 
 	pefds = malloc(num_cpus * sizeof(int));
-	for (i = 0; i < num_cpus; i++)
+	for (i = 0; i < num_cpus; i++) {
 		pefds[i] = -1;
+	}
 
 	links = calloc(num_cpus, sizeof(struct bpf_link *));
 
@@ -179,10 +209,15 @@ int main(int argc, char * const argv[])
 	attr.freq = 1;
 
 	for (cpu = 0; cpu < num_cpus; cpu++) {
+		/* skip offline/not present CPUs */
+		if (cpu >= num_online_cpus || !online_mask[cpu])
+			continue;
+
 		/* Set up performance monitoring on a CPU/Core */
 		pefd = perf_event_open(&attr, pid, cpu, -1, PERF_FLAG_FD_CLOEXEC);
 		if (pefd < 0) {
 			fprintf(stderr, "Fail to set up performance monitor on a CPU/Core\n");
+			err = -1;
 			goto cleanup;
 		}
 		pefds[cpu] = pefd;
@@ -214,6 +249,7 @@ cleanup:
 	}
 	ring_buffer__free(ring_buf);
 	profile_bpf__destroy(skel);
-	blazesym_free(symbolizer);
+	blaze_symbolizer_free(symbolizer);
+	free(online_mask);
 	return -err;
 }

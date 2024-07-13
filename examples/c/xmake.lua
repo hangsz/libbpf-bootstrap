@@ -13,7 +13,7 @@ option("require-bpftool",    {showmenu = true, default = false, description = "R
 
 add_requires("elfutils", "zlib")
 if is_plat("android") then
-    add_requires("ndk >=22.x", "argp-standalone")
+    add_requires("ndk >=22.x <26", "argp-standalone")
     set_toolchains("@ndk", {sdkver = "23"})
 else
     add_requires("llvm >=10.x")
@@ -21,7 +21,25 @@ else
     add_requires("linux-headers")
 end
 
-add_includedirs("../../vmlinux")
+-- fix error: libbpf: map 'my_pid_map': unsupported map linkage static. for bpftool >= 7.2.0
+-- we cannot add `"-fvisibility=hidden"` when compiling *.bpf.c
+set_symbols("none")
+
+if is_arch("arm64", "arm64-v8a") then
+    add_includedirs("../../vmlinux/arm64")
+elseif is_arch("arm.*") then
+    add_includedirs("../../vmlinux/arm")
+elseif is_arch("riscv32", "riscv64") then
+    add_includedirs("../../vmlinux/riscv")
+elseif is_arch("loongarch") then
+    add_includedirs("../../vmlinux/loongarch")
+elseif is_arch("ppc", "powerpc") then
+    add_includedirs("../../vmlinux/powerpc")
+elseif is_arch("x86_64", "i386") then
+    add_includedirs("../../vmlinux/x86")
+else
+    add_includedirs("../../vmlinux")
+end
 
 -- we can run `xmake f --require-bpftool=y` to pull bpftool from xmake-repo repository
 if has_config("require-bpftool") then
